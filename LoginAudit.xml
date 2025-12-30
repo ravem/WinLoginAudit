@@ -1,74 +1,53 @@
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Date>2017-10-29T05:14:59.4392963</Date>
-    <Author>jacauc</Author>
+    <Date>2024-01-01T10:00:00</Date>
+    <Author>Admin</Author>
     <URI>\Login Audit</URI>
   </RegistrationInfo>
   <Triggers>
     <EventTrigger>
       <Enabled>true</Enabled>
-      <Subscription>&lt;QueryList&gt;&lt;Query Id="0" Path="Security"&gt;&lt;Select Path="Security"&gt;
-	*[System[EventID=4624]
-	and
-	EventData[Data[@Name='LogonType'] != '4']
-	and 
-	EventData[Data[@Name='LogonType'] != '5']
-	and
-	EventData[Data[@Name='SubjectUserSid']!='S-1-0-0']
-	and
-	EventData[Data[@Name='TargetDomainName']!='Window Manager']
-	and
-	EventData[Data[@Name='TargetDomainName']!='Font Driver Host']
-	and
-	( System[TimeCreated[timediff(@SystemTime) &amp;lt;= 60000]])
-	]
-	
-	or
-	
-	*[System[EventID=4625] 
-	and
-	EventData[Data[@Name='LogonType'] != '4']
-	and 
-	EventData[Data[@Name='LogonType'] != '5']
-	and
-	( System[TimeCreated[timediff(@SystemTime) &amp;lt;= 60000]])
-	]
-  &lt;/Select&gt;&lt;/Query&gt;&lt;/QueryList&gt;</Subscription>
+      <Subscription>
+        &lt;QueryList&gt;
+          &lt;Query Id="0" Path="Security"&gt;
+            &lt;Select Path="Security"&gt;
+              (*[System[EventID=4624]] and *[EventData[Data[@Name='LogonType'] != '4' and Data[@Name='LogonType'] != '5' and Data[@Name='SubjectUserSid'] != 'S-1-0-0' and Data[@Name='TargetDomainName'] != 'Window Manager']])
+              or
+              (*[System[EventID=4625]])
+            &lt;/Select&gt;
+          &lt;/Query&gt;
+        &lt;/QueryList&gt;
+      </Subscription>
     </EventTrigger>
   </Triggers>
   <Principals>
     <Principal id="Author">
-      <UserId>S-1-5-21-3911950312-3420160509-134503256-1001</UserId>
-      <LogonType>Password</LogonType>
+      <GroupId>S-1-5-18</GroupId> 
       <RunLevel>HighestAvailable</RunLevel>
     </Principal>
   </Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-    <StopIfGoingOnBatteries>true</StopIfGoingOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
     <AllowHardTerminate>true</AllowHardTerminate>
-    <StartWhenAvailable>false</StartWhenAvailable>
+    <StartWhenAvailable>true</StartWhenAvailable>
     <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
     <IdleSettings>
-      <StopOnIdleEnd>true</StopOnIdleEnd>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
       <RestartOnIdle>false</RestartOnIdle>
     </IdleSettings>
     <AllowStartOnDemand>true</AllowStartOnDemand>
     <Enabled>true</Enabled>
     <Hidden>false</Hidden>
-    <RunOnlyIfIdle>false</RunOnlyIfIdle>
-    <DisallowStartOnRemoteAppSession>false</DisallowStartOnRemoteAppSession>
-    <UseUnifiedSchedulingEngine>true</UseUnifiedSchedulingEngine>
-    <WakeToRun>false</WakeToRun>
-    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <ExecutionTimeLimit>PT1M</ExecutionTimeLimit>
     <Priority>7</Priority>
   </Settings>
   <Actions Context="Author">
     <Exec>
-      <Command>powershell</Command>
-      <Arguments>C:\Users\Jacques\LoginAudit.ps1</Arguments>
+      <Command>powershell.exe</Command>
+      <Arguments>-WindowStyle Hidden -ExecutionPolicy Bypass -File "C:\Scripts\LoginAudit.ps1"</Arguments>
     </Exec>
   </Actions>
 </Task>
