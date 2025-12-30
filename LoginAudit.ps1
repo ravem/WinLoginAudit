@@ -1,127 +1,91 @@
-# WinLoginAudit
-# @jacauc - 09 Jan 2018 
-# IMPORTANT! Please add your own Telegram Bot chat ID to the following variables.
- 
+# WinLoginAudit v2.0 - Updated 2024
+# forked from @jacauc 
+
+# Configurazione Telegram
 $tokenID = "123456789:ABC-DEFghIJkLMNOPqrstUvWxYZ"
 $chatsID = "-098765432", "-123456789"
-# Note: group ID's typically start with a minus sign
 
+# Forza l'uso di TLS 1.2 per le API di Telegram
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-# Logon Types
-$LogonType = $(1 .. 12)
-$LogonType[0] = "ERROR"
-$LogonType[1] = "ERROR"
-$LogonType[2] = "Interactive"
-$LogonType[3] = "Network"
-$LogonType[4] = "Batch" 
-$LogonType[5] = "Service" 
-$LogonType[7] = "Unlock"
-$LogonType[8] = "NetworkCleartext"
-$LogonType[9] = "NewCredentials"
-$LogonType[10] = "RemoteInteractive"
-$LogonType[11] = "CachedInteractive"
+# Mappatura Logon Types
+$LogonTypeMap = @{
+    2  = "Interactive (Locale)"
+    3  = "Network (Condivisione)"
+    4  = "Batch"
+    5  = "Service"
+    7  = "Unlock (Sblocco)"
+    8  = "NetworkCleartext"
+    9  = "NewCredentials"
+    10 = "RemoteInteractive (RDP)"
+    11 = "CachedInteractive"
+    12 = "CachedRemoteInteractive"
+}
 
-
-$filterXml = "
+# Filtro XML (Ultimi 60 secondi)
+$filterXml = @"
 <QueryList>
   <Query Id='0' Path='Security'>
     <Select Path='Security'>
-	*[System[EventID=4624]
-	and
-	EventData[Data[@Name='LogonType'] != '4']
-	and 
-	EventData[Data[@Name='LogonType'] != '5']
-	and
-	EventData[Data[@Name='SubjectUserSid']!='S-1-0-0']
-	and
-	EventData[Data[@Name='TargetDomainName']!='Window Manager']
-	and
-	EventData[Data[@Name='TargetDomainName']!='Font Driver Host']
-	and
-	( System[TimeCreated[timediff(@SystemTime) &lt;= 60000]])
-	]
-	
-	or
-	
-	*[System[EventID=4625] 
-	and
-	EventData[Data[@Name='LogonType'] != '4']
-	and 
-	EventData[Data[@Name='LogonType'] != '5']
-	and
-	( System[TimeCreated[timediff(@SystemTime) &lt;= 60000]])
-	]
-  </Select>
+        (*[System[EventID=4624]] and *[EventData[Data[@Name='LogonType'] != '4' and Data[@Name='LogonType'] != '5' and Data[@Name='SubjectUserSid'] != 'S-1-0-0']])
+        or
+        (*[System[EventID=4625]])
+    </Select>
   </Query>
-</QueryList>"
+</QueryList>
+"@
 
-
-# Query the server for the login events. Attach this powershell script to Windows Scheduler on events  with custom XML event for 4624 and 4625 
-# Create a custom event filter for 4624 events to prevent login notification for the scheduled task itself as it authenticates. See the github repo for the scheduled task to import
-
-$colEvents = Get-WinEvent -FilterXml $filterXml 
-
-# Iterate through the collection of login events. 
-$Result = @()
-Foreach ($Entry in $colEvents) 
-{ 
-    $EvtSourceIP = ""
-	$SourceIPPresent = ""
-	
-	# Extract Logon Type Number
-	$EvtLogonTypeNum = $Entry.Properties[8].Value
-	
-	# Extract "real" username
-	$EvtLogonUser = $Entry.Properties[5].Value
-
-	# Extract "real" domain	
-	$EvtLogonDomain = $Entry.Properties[2].Value
-	
-	#extract Event ID number
-	$EvtID = $Entry.Id 
-   
-	#Convert logontype number to string
-	$EvtLogonTypeDesc = $LogonType[$EvtLogonTypeNum] 
-	  	 
-	#extract time event was generated and convert to standard format
-	$TimeGenerated = $Entry.TimeCreated.ToString("dd-MMM-yyyy HH:mm:ss")
-   
-	# Filter out some of the 4624 (success) events 
-	If ($EvtID -eq "4624") 
-	{ 
-		$EvtSourceIP = $Entry.Properties[18].Value	
-		If (($EvtSourceIP -ne "") -and ($EvtSourceIP -ne "-") -and ($EvtSourceIP -ne "::1")) 
-			{
-				$SourceIPPresent = "*Source IP*: $EvtSourceIP`n"
-		}
-		$Result += @("`n*Time*: $TimeGenerated `n*User*: $EvtLogonDomain\$EvtLogonUser `n*Result*: Success ($EvtLogonTypeDesc)`n$SourceIPPresent")
-	} 
-   
-	# Filter out some of the 4625 (failed) events  
-	If ($EvtID -eq "4625") 
-	{ 
-		$EvtSourceIP = $Entry.Properties[19].Value
-		If (($EvtSourceIP -ne "") -and ($EvtSourceIP -ne "-") -and ($EvtSourceIP -ne "::1")) 
-			{
-				$SourceIPPresent = "*Source IP*: $EvtSourceIP`n"
-			}
-		$Result += @("`n*Time*: $TimeGenerated `n*User*: $EvtLogonDomain\$EvtLogonUser `n*Result*: Fail`n$SourceIPPresent")
-	} 
+# Recupero Eventi
+try {
+    $events = Get-WinEvent -FilterXml $filterXml -ErrorAction SilentlyContinue
+} catch {
+    exit # Esce se non ci sono eventi o errore nel log
 }
 
-#if no results were returned, exit immediately and do not send Telegram message
-#if ($result.count -eq 0) { exit }
+if ($null -eq $events) { exit }
 
-#Remove duplicate events
-$result = $result |Sort-Object -Unique
+$ResultMessages = @()
 
-# obtain computer IP address
-$ip = Test-Connection -ComputerName (hostname) -Count 1  | Select -ExpandProperty IPV4Address
+foreach ($event in $events) {
+    # Parsing sicuro dei dati dell'evento tramite XML
+    $eventXml = [xml]$event.ToXml()
+    $eventData = @{}
+    foreach ($data in $eventXml.Event.EventData.Data) {
+        $eventData[$data.Name] = $data.'#text'
+    }
 
-# convert IP address to string
-$ip = $ip.IPAddressToString
+    $id = $event.Id
+    $time = $event.TimeCreated.ToString("dd-MM-yyyy HH:mm:ss")
+    $user = "$($eventData['TargetDomainName'])\$($eventData['TargetUserName'])"
+    $typeNum = [int]$eventData['LogonType']
+    $typeDesc = $LogonTypeMap[$typeNum] ? $LogonTypeMap[$typeNum] : "Unknown ($typeNum)"
+    $sourceIp = $eventData['IpAddress']
 
-#output the results to Telegram using an HTTP GET request
-foreach( $chatID in $chatsID) {
-	curl "https://api.telegram.org/bot$tokenID/sendMessage?chat_id=$chatID&parse_mode=Markdown&text=*System Login Activity* %0A*$env:COMPUTERNAME* : $ip $result"
+    $ipString = if ($sourceIp -and $sourceIp -ne "-" -and $sourceIp -ne "::1") { "`n*Source IP*: $sourceIp" } else { "" }
+    
+    if ($id -eq 4624) {
+        $msg = "✅ *Login Success*`n*Time*: $time`n*User*: $user`n*Type*: $typeDesc$ipString"
+    } else {
+        $msg = "❌ *Login FAILED*`n*Time*: $time`n*User*: $user$ipString"
+    }
+    
+    $ResultMessages += $msg
+}
+
+# Rimuove duplicati e invia
+$uniqueMessages = $ResultMessages | Select-Object -Unique
+$computerName = $env:COMPUTERNAME
+$publicIp = (Invoke-RestMethod -Uri "https://api.ipify.org") # Opzionale: ottiene IP pubblico reale
+
+foreach ($chatId in $chatsID) {
+    foreach ($text in $uniqueMessages) {
+        $fullMessage = "🖥 *System:* $computerName ($publicIp)`n$text"
+        $payload = @{
+            chat_id    = $chatId
+            text       = $fullMessage
+            parse_mode = "Markdown"
+        }
+        # Invio tramite POST (più sicuro e robusto)
+        Invoke-RestMethod -Uri "https://api.telegram.org/bot$tokenID/sendMessage" -Method Post -Body ($payload | ConvertTo-Json) -ContentType "application/json"
+    }
 }
